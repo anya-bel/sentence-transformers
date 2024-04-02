@@ -841,9 +841,25 @@ class SentenceTransformer(nn.Sequential):
         :return:
             a batch of tensors for the model
         """
-        texts = [example.texts for example in batch]
-        sentence_features = [self.tokenize(sentence) for sentence in zip(*texts)]
-        labels = torch.tensor([example.label for example in batch])
+        border_batch = [x[1] for x in batch]
+        batch = [x[0] for x in batch]
+        num_texts = len(batch[0].texts)
+        texts = [[] for _ in range(num_texts)]
+        labels = []
+
+        for example in batch:
+            for idx, text in enumerate(example.texts):
+                texts[idx].append(text)
+
+            labels.append(example.label)
+
+        labels = torch.tensor(labels)
+
+        sentence_features = []
+        for idx in range(num_texts):
+            tokenized = self.tokenize(texts[idx])
+            tokenized['borders'] = torch.tensor(border_batch)
+            sentence_features.append(tokenized)
         return sentence_features, labels
 
     def _text_length(self, text: Union[List[int], List[List[int]]]):

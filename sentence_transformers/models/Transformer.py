@@ -4,6 +4,8 @@ import json
 from typing import List, Dict, Optional, Union, Tuple
 import os
 
+from offset_mapping import create_offset_mapping
+
 
 class Transformer(nn.Module):
     """Huggingface AutoModel to generate token embeddings.
@@ -142,15 +144,12 @@ class Transformer(nn.Module):
         if self.do_lower_case:
             to_tokenize = [[s.lower() for s in col] for col in to_tokenize]
 
-        output.update(
-            self.tokenizer(
-                *to_tokenize,
-                padding=True,
-                truncation="longest_first",
-                return_tensors="pt",
-                max_length=self.max_seq_length,
-            )
-        )
+	try:
+            tokenized = self.tokenizer(*to_tokenize, padding=True, truncation='longest_first', return_tensors="pt", max_length=self.max_seq_length, return_offsets_mapping=True)    
+        except:
+            tokenized = self.tokenizer(*to_tokenize, padding=True, truncation='longest_first', return_tensors="pt", max_length=self.max_seq_length)
+            tokenized['offset_mapping'] = create_offset_mapping(*to_tokenize, tokenized, self.tokenizer)
+        output.update(tokenized)
         return output
 
     def get_config_dict(self):
