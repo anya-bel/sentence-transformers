@@ -1,10 +1,11 @@
+import json
+import os
+from typing import List, Dict, Optional, Union, Tuple
+
 from torch import nn
 from transformers import AutoModel, AutoTokenizer, AutoConfig, T5Config, MT5Config
-import json
-from typing import List, Dict, Optional, Union, Tuple
-import os
 
-from offset_mapping import create_offset_mapping
+from .offset_mapping import create_offset_mapping
 
 
 class Transformer(nn.Module):
@@ -21,14 +22,14 @@ class Transformer(nn.Module):
     """
 
     def __init__(
-        self,
-        model_name_or_path: str,
-        max_seq_length: Optional[int] = None,
-        model_args: Dict = {},
-        cache_dir: Optional[str] = None,
-        tokenizer_args: Dict = {},
-        do_lower_case: bool = False,
-        tokenizer_name_or_path: str = None,
+            self,
+            model_name_or_path: str,
+            max_seq_length: Optional[int] = None,
+            model_args: Dict = {},
+            cache_dir: Optional[str] = None,
+            tokenizer_args: Dict = {},
+            do_lower_case: bool = False,
+            tokenizer_name_or_path: str = None,
     ):
         super(Transformer, self).__init__()
         self.config_keys = ["max_seq_length", "do_lower_case"]
@@ -46,9 +47,9 @@ class Transformer(nn.Module):
         # No max_seq_length set. Try to infer from model
         if max_seq_length is None:
             if (
-                hasattr(self.auto_model, "config")
-                and hasattr(self.auto_model.config, "max_position_embeddings")
-                and hasattr(self.tokenizer, "model_max_length")
+                    hasattr(self.auto_model, "config")
+                    and hasattr(self.auto_model.config, "max_position_embeddings")
+                    and hasattr(self.tokenizer, "model_max_length")
             ):
                 max_seq_length = min(self.auto_model.config.max_position_embeddings, self.tokenizer.model_max_length)
 
@@ -60,12 +61,12 @@ class Transformer(nn.Module):
     def _load_model(self, model_name_or_path, config, cache_dir, **model_args):
         """Loads the transformer model"""
         if isinstance(config, T5Config):
-            self._load_t5_model(model_name_or_path, config, cache_dir, **model_args)
+            self._load_t5_model(model_name_or_path, config, cache_dir)
         elif isinstance(config, MT5Config):
-            self._load_mt5_model(model_name_or_path, config, cache_dir, **model_args)
+            self._load_mt5_model(model_name_or_path, config, cache_dir)
         else:
             self.auto_model = AutoModel.from_pretrained(
-                model_name_or_path, config=config, cache_dir=cache_dir, **model_args
+                model_name_or_path, config=config, cache_dir=cache_dir
             )
 
     def _load_t5_model(self, model_name_or_path, config, cache_dir, **model_args):
@@ -144,10 +145,12 @@ class Transformer(nn.Module):
         if self.do_lower_case:
             to_tokenize = [[s.lower() for s in col] for col in to_tokenize]
 
-	try:
-            tokenized = self.tokenizer(*to_tokenize, padding=True, truncation='longest_first', return_tensors="pt", max_length=self.max_seq_length, return_offsets_mapping=True)    
+        try:
+            tokenized = self.tokenizer(*to_tokenize, padding=True, truncation='longest_first', return_tensors="pt",
+                                       max_length=self.max_seq_length, return_offsets_mapping=True)
         except:
-            tokenized = self.tokenizer(*to_tokenize, padding=True, truncation='longest_first', return_tensors="pt", max_length=self.max_seq_length)
+            tokenized = self.tokenizer(*to_tokenize, padding=True, truncation='longest_first', return_tensors="pt",
+                                       max_length=self.max_seq_length)
             tokenized['offset_mapping'] = create_offset_mapping(*to_tokenize, tokenized, self.tokenizer)
         output.update(tokenized)
         return output

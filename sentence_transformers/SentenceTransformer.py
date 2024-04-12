@@ -1,27 +1,32 @@
 import json
 import logging
+import math
 import os
+import queue
 import shutil
-from collections import OrderedDict
+import tempfile
 import warnings
+from collections import OrderedDict
 from typing import List, Dict, Literal, Tuple, Iterable, Type, Union, Callable, Optional, TYPE_CHECKING
+
 import numpy as np
-from numpy import ndarray
-import transformers
-from transformers import is_torch_npu_available
-from huggingface_hub import HfApi
 import torch
+import torch.multiprocessing as mp
+import transformers
+from huggingface_hub import HfApi
+from numpy import ndarray
 from torch import nn, Tensor, device
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
-import torch.multiprocessing as mp
 from tqdm.autonotebook import trange
-import math
-import queue
-import tempfile
+from transformers import is_torch_npu_available
 
 from . import __MODEL_HUB_ORGANIZATION__
+from . import __version__
 from .evaluation import SentenceEvaluator
+from .model_card_templates import ModelCardTemplate
+from .models import Transformer, Pooling, Normalize
+from .quantization import quantize_embeddings
 from .util import (
     import_from_string,
     batch_to_device,
@@ -32,13 +37,8 @@ from .util import (
     save_to_hub_args_decorator,
     get_device_name,
 )
-from .quantization import quantize_embeddings
-from .models import Transformer, Pooling, Normalize
-from .model_card_templates import ModelCardTemplate
-from . import __version__
 
 logger = logging.getLogger(__name__)
-
 
 if TYPE_CHECKING:
     from sentence_transformers.readers import InputExample
@@ -71,17 +71,17 @@ class SentenceTransformer(nn.Sequential):
     """
 
     def __init__(
-        self,
-        model_name_or_path: Optional[str] = None,
-        modules: Optional[Iterable[nn.Module]] = None,
-        device: Optional[str] = None,
-        prompts: Optional[Dict[str, str]] = None,
-        default_prompt_name: Optional[str] = None,
-        cache_folder: Optional[str] = None,
-        trust_remote_code: bool = False,
-        revision: Optional[str] = None,
-        token: Optional[Union[bool, str]] = None,
-        use_auth_token: Optional[Union[bool, str]] = None,
+            self,
+            model_name_or_path: Optional[str] = None,
+            modules: Optional[Iterable[nn.Module]] = None,
+            device: Optional[str] = None,
+            prompts: Optional[Dict[str, str]] = None,
+            default_prompt_name: Optional[str] = None,
+            cache_folder: Optional[str] = None,
+            trust_remote_code: bool = False,
+            revision: Optional[str] = None,
+            token: Optional[Union[bool, str]] = None,
+            use_auth_token: Optional[Union[bool, str]] = None,
     ):
         # Note: self._load_sbert_model can also update `self.prompts` and `self.default_prompt_name`
         self.prompts = prompts or {}
@@ -236,9 +236,9 @@ class SentenceTransformer(nn.Sequential):
         if model_name_or_path in ("hkunlp/instructor-base", "hkunlp/instructor-large", "hkunlp/instructor-xl"):
             self.set_pooling_include_prompt(include_prompt=False)
         elif (
-            model_name_or_path
-            and "/" in model_name_or_path
-            and "instructor" in model_name_or_path.split("/")[1].lower()
+                model_name_or_path
+                and "/" in model_name_or_path
+                and "instructor" in model_name_or_path.split("/")[1].lower()
         ):
             if any([module.include_prompt for module in self if isinstance(module, Pooling)]):
                 logger.warning(
@@ -247,18 +247,18 @@ class SentenceTransformer(nn.Sequential):
                 )
 
     def encode(
-        self,
-        sentences: Union[str, List[str]],
-        prompt_name: Optional[str] = None,
-        prompt: Optional[str] = None,
-        batch_size: int = 32,
-        show_progress_bar: bool = None,
-        output_value: str = "sentence_embedding",
-        precision: Literal["float32", "int8", "uint8", "binary", "ubinary"] = "float32",
-        convert_to_numpy: bool = True,
-        convert_to_tensor: bool = False,
-        device: str = None,
-        normalize_embeddings: bool = False,
+            self,
+            sentences: Union[str, List[str]],
+            prompt_name: Optional[str] = None,
+            prompt: Optional[str] = None,
+            batch_size: int = 32,
+            show_progress_bar: bool = None,
+            output_value: str = "sentence_embedding",
+            precision: Literal["float32", "int8", "uint8", "binary", "ubinary"] = "float32",
+            convert_to_numpy: bool = True,
+            convert_to_tensor: bool = False,
+            device: str = None,
+            normalize_embeddings: bool = False,
     ) -> Union[List[Tensor], ndarray, Tensor]:
         """
         Computes sentence embeddings.
@@ -294,7 +294,7 @@ class SentenceTransformer(nn.Sequential):
         self.eval()
         if show_progress_bar is None:
             show_progress_bar = (
-                logger.getEffectiveLevel() == logging.INFO or logger.getEffectiveLevel() == logging.DEBUG
+                    logger.getEffectiveLevel() == logging.INFO or logger.getEffectiveLevel() == logging.DEBUG
             )
 
         if convert_to_tensor:
@@ -306,7 +306,7 @@ class SentenceTransformer(nn.Sequential):
 
         input_was_string = False
         if isinstance(sentences, str) or not hasattr(
-            sentences, "__len__"
+                sentences, "__len__"
         ):  # Cast an individual sentence to a list with length 1
             sentences = [sentences]
             input_was_string = True
@@ -348,7 +348,7 @@ class SentenceTransformer(nn.Sequential):
         sentences_sorted = [sentences[idx] for idx in length_sorted_idx]
 
         for start_index in trange(0, len(sentences), batch_size, desc="Batches", disable=not show_progress_bar):
-            sentences_batch = sentences_sorted[start_index : start_index + batch_size]
+            sentences_batch = sentences_sorted[start_index: start_index + batch_size]
             features = self.tokenize(sentences_batch)
             features = batch_to_device(features, device)
             features.update(extra_features)
@@ -363,7 +363,7 @@ class SentenceTransformer(nn.Sequential):
                         while last_mask_id > 0 and attention[last_mask_id].item() == 0:
                             last_mask_id -= 1
 
-                        embeddings.append(token_emb[0 : last_mask_id + 1])
+                        embeddings.append(token_emb[0: last_mask_id + 1])
                 elif output_value is None:  # Return all outputs
                     embeddings = []
                     for sent_idx in range(len(out_features["sentence_embedding"])):
@@ -463,14 +463,14 @@ class SentenceTransformer(nn.Sequential):
         pool["output"].close()
 
     def encode_multi_process(
-        self,
-        sentences: List[str],
-        pool: Dict[str, object],
-        prompt_name: Optional[str] = None,
-        prompt: Optional[str] = None,
-        batch_size: int = 32,
-        chunk_size: int = None,
-        normalize_embeddings: bool = False,
+            self,
+            sentences: List[str],
+            pool: Dict[str, object],
+            prompt_name: Optional[str] = None,
+            prompt: Optional[str] = None,
+            batch_size: int = 32,
+            chunk_size: int = None,
+            normalize_embeddings: bool = False,
     ):
         """
         This method allows to run encode() on multiple GPUs. The sentences are chunked into smaller packages
@@ -587,12 +587,12 @@ class SentenceTransformer(nn.Sequential):
         return self._modules[next(reversed(self._modules))]
 
     def save(
-        self,
-        path: str,
-        model_name: Optional[str] = None,
-        create_model_card: bool = True,
-        train_datasets: Optional[List[str]] = None,
-        safe_serialization: bool = True,
+            self,
+            path: str,
+            model_name: Optional[str] = None,
+            create_model_card: bool = True,
+            train_datasets: Optional[List[str]] = None,
+            safe_serialization: bool = True,
     ):
         """
         Saves all elements for this seq. sentence embedder into different sub-folders
@@ -651,7 +651,7 @@ class SentenceTransformer(nn.Sequential):
             self._create_model_card(path, model_name, train_datasets)
 
     def _create_model_card(
-        self, path: str, model_name: Optional[str] = None, train_datasets: Optional[List[str]] = None
+            self, path: str, model_name: Optional[str] = None, train_datasets: Optional[List[str]] = None
     ):
         """
         Create an automatic model and stores it in path
@@ -663,10 +663,10 @@ class SentenceTransformer(nn.Sequential):
             model_card = ModelCardTemplate.__MODEL_CARD__
 
             if (
-                len(self._modules) == 2
-                and isinstance(self._first_module(), Transformer)
-                and isinstance(self._last_module(), Pooling)
-                and self._last_module().get_pooling_mode_str() in ["cls", "max", "mean"]
+                    len(self._modules) == 2
+                    and isinstance(self._first_module(), Transformer)
+                    and isinstance(self._last_module(), Pooling)
+                    and self._last_module().get_pooling_mode_str() in ["cls", "max", "mean"]
             ):
                 pooling_module = self._last_module()
                 pooling_mode = pooling_module.get_pooling_mode_str()
@@ -676,8 +676,8 @@ class SentenceTransformer(nn.Sequential):
                 pooling_fct_name, pooling_fct = ModelCardTemplate.model_card_get_pooling_function(pooling_mode)
                 model_card = (
                     model_card.replace("{POOLING_FUNCTION}", pooling_fct)
-                    .replace("{POOLING_FUNCTION_NAME}", pooling_fct_name)
-                    .replace("{POOLING_MODE}", pooling_mode)
+                        .replace("{POOLING_FUNCTION_NAME}", pooling_fct_name)
+                        .replace("{POOLING_MODE}", pooling_mode)
                 )
                 tags.append("transformers")
 
@@ -711,17 +711,17 @@ class SentenceTransformer(nn.Sequential):
 
     @save_to_hub_args_decorator
     def save_to_hub(
-        self,
-        repo_id: str,
-        organization: Optional[str] = None,
-        token: Optional[str] = None,
-        private: Optional[bool] = None,
-        safe_serialization: bool = True,
-        commit_message: str = "Add new SentenceTransformer model.",
-        local_model_path: Optional[str] = None,
-        exist_ok: bool = False,
-        replace_model_card: bool = False,
-        train_datasets: Optional[List[str]] = None,
+            self,
+            repo_id: str,
+            organization: Optional[str] = None,
+            token: Optional[str] = None,
+            private: Optional[bool] = None,
+            safe_serialization: bool = True,
+            commit_message: str = "Add new SentenceTransformer model.",
+            local_model_path: Optional[str] = None,
+            exist_ok: bool = False,
+            replace_model_card: bool = False,
+            train_datasets: Optional[List[str]] = None,
     ) -> str:
         """
         DEPRECATED, use `push_to_hub` instead.
@@ -774,16 +774,16 @@ class SentenceTransformer(nn.Sequential):
         )
 
     def push_to_hub(
-        self,
-        repo_id: str,
-        token: Optional[str] = None,
-        private: Optional[bool] = None,
-        safe_serialization: bool = True,
-        commit_message: str = "Add new SentenceTransformer model.",
-        local_model_path: Optional[str] = None,
-        exist_ok: bool = False,
-        replace_model_card: bool = False,
-        train_datasets: Optional[List[str]] = None,
+            self,
+            repo_id: str,
+            token: Optional[str] = None,
+            private: Optional[bool] = None,
+            safe_serialization: bool = True,
+            commit_message: str = "Add new SentenceTransformer model.",
+            local_model_path: Optional[str] = None,
+            exist_ok: bool = False,
+            replace_model_card: bool = False,
+            train_datasets: Optional[List[str]] = None,
     ) -> str:
         """
         Uploads all elements of this Sentence Transformer to a new HuggingFace Hub repository.
@@ -879,26 +879,26 @@ class SentenceTransformer(nn.Sequential):
             return sum([len(t) for t in text])  # Sum of length of individual strings
 
     def fit(
-        self,
-        train_objectives: Iterable[Tuple[DataLoader, nn.Module]],
-        evaluator: SentenceEvaluator = None,
-        epochs: int = 1,
-        steps_per_epoch=None,
-        scheduler: str = "WarmupLinear",
-        warmup_steps: int = 10000,
-        optimizer_class: Type[Optimizer] = torch.optim.AdamW,
-        optimizer_params: Dict[str, object] = {"lr": 2e-5},
-        weight_decay: float = 0.01,
-        evaluation_steps: int = 0,
-        output_path: str = None,
-        save_best_model: bool = True,
-        max_grad_norm: float = 1,
-        use_amp: bool = False,
-        callback: Callable[[float, int, int], None] = None,
-        show_progress_bar: bool = True,
-        checkpoint_path: str = None,
-        checkpoint_save_steps: int = 500,
-        checkpoint_save_total_limit: int = 0,
+            self,
+            train_objectives: Iterable[Tuple[DataLoader, nn.Module]],
+            evaluator: SentenceEvaluator = None,
+            epochs: int = 1,
+            steps_per_epoch=None,
+            scheduler: str = "WarmupLinear",
+            warmup_steps: int = 10000,
+            optimizer_class: Type[Optimizer] = torch.optim.AdamW,
+            optimizer_params: Dict[str, object] = {"lr": 2e-5},
+            weight_decay: float = 0.01,
+            evaluation_steps: int = 0,
+            output_path: str = None,
+            save_best_model: bool = True,
+            max_grad_norm: float = 1,
+            use_amp: bool = False,
+            callback: Callable[[float, int, int], None] = None,
+            show_progress_bar: bool = True,
+            checkpoint_path: str = None,
+            checkpoint_save_steps: int = 500,
+            checkpoint_save_total_limit: int = 0,
     ):
         """
         Train the model with the given training objective
@@ -1010,14 +1010,14 @@ class SentenceTransformer(nn.Sequential):
         num_train_objectives = len(train_objectives)
 
         skip_scheduler = False
-        for epoch in trange(epochs, desc="Epoch", disable=not show_progress_bar):
+        for epoch in trange(epochs, desc="Epoch", disable=not show_progress_bar, leave=True, position=0):
             training_steps = 0
 
             for loss_model in loss_models:
                 loss_model.zero_grad()
                 loss_model.train()
 
-            for _ in trange(steps_per_epoch, desc="Iteration", smoothing=0.05, disable=not show_progress_bar):
+            for _ in trange(steps_per_epoch, desc="Iteration", smoothing=0.05, disable=not show_progress_bar, leave=True, position=0):
                 for train_idx in range(num_train_objectives):
                     loss_model = loss_models[train_idx]
                     optimizer = optimizers[train_idx]
@@ -1071,10 +1071,10 @@ class SentenceTransformer(nn.Sequential):
                         loss_model.train()
 
                 if (
-                    checkpoint_path is not None
-                    and checkpoint_save_steps is not None
-                    and checkpoint_save_steps > 0
-                    and global_step % checkpoint_save_steps == 0
+                        checkpoint_path is not None
+                        and checkpoint_save_steps is not None
+                        and checkpoint_save_steps > 0
+                        and global_step % checkpoint_save_steps == 0
                 ):
                     self._save_checkpoint(checkpoint_path, checkpoint_save_total_limit, global_step)
 
@@ -1132,12 +1132,12 @@ class SentenceTransformer(nn.Sequential):
                 shutil.rmtree(old_checkpoints[0]["path"])
 
     def _load_auto_model(
-        self,
-        model_name_or_path: str,
-        token: Optional[Union[bool, str]],
-        cache_folder: Optional[str],
-        revision: Optional[str] = None,
-        trust_remote_code: bool = False,
+            self,
+            model_name_or_path: str,
+            token: Optional[Union[bool, str]],
+            cache_folder: Optional[str],
+            revision: Optional[str] = None,
+            trust_remote_code: bool = False,
     ):
         """
         Creates a simple Transformer + Mean Pooling model and returns the modules
@@ -1157,12 +1157,12 @@ class SentenceTransformer(nn.Sequential):
         return [transformer_model, pooling_model]
 
     def _load_sbert_model(
-        self,
-        model_name_or_path: str,
-        token: Optional[Union[bool, str]],
-        cache_folder: Optional[str],
-        revision: Optional[str] = None,
-        trust_remote_code: bool = False,
+            self,
+            model_name_or_path: str,
+            token: Optional[Union[bool, str]],
+            cache_folder: Optional[str],
+            revision: Optional[str] = None,
+            trust_remote_code: bool = False,
     ):
         """
         Loads a full sentence-transformers model
@@ -1180,9 +1180,9 @@ class SentenceTransformer(nn.Sequential):
                 self._model_config = json.load(fIn)
 
             if (
-                "__version__" in self._model_config
-                and "sentence_transformers" in self._model_config["__version__"]
-                and self._model_config["__version__"]["sentence_transformers"] > __version__
+                    "__version__" in self._model_config
+                    and "sentence_transformers" in self._model_config["__version__"]
+                    and self._model_config["__version__"]["sentence_transformers"] > __version__
             ):
                 logger.warning(
                     "You try to use a model that was created with version {}, however, your version is {}. This might cause unexpected behavior or errors. In that case, try to update to the latest version.\n\n\n".format(
